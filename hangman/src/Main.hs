@@ -7,16 +7,12 @@ import Data.List (intersperse)
 import System.Exit (exitSuccess)
 import System.Random (randomRIO)
 
-type WordList = [String]
-
-main :: IO ()
-main = do
-  putStrLn "hello world"
+newtype WordList = WordList [String] deriving (Eq, Show)
 
 allWords :: IO WordList
 allWords = do
     dict <- readFile "data/dict.txt"
-    return (lines dict)
+    return $ WordList (lines dict)
 
 minWordLength :: Int
 minWordLength = 5
@@ -26,15 +22,15 @@ maxWordLength = 9
 
 gameWords :: IO WordList
 gameWords = do
-    aw <- allWords
-    return (filter gameLength aw)
+    (WordList aw) <- allWords
+    return $ WordList (filter gameLength aw)
     where gameLength w =
             let l = length (w :: String)
             in     l >= minWordLength
                 && l < maxWordLength
 
 randomWord :: WordList -> IO String
-randomWord wl = do
+randomWord (WordList wl) = do
     randomIndex <- randomRIO (0, length wl - 1)
     return $ wl !! randomIndex
 
@@ -48,11 +44,11 @@ instance Show Puzzle where
     show (Puzzle _ discovered guessed) =
         (intersperse ' ' $
          fmap renderPuzzleChar discovered)
-         ++ " Guessed so far: " ++ guessed
+         ++ " Guessed so far: " ++ intersperse ',' guessed
 
 renderPuzzleChar :: Maybe Char -> Char
-renderPuzzleChar Nothing = '_'
-renderPuzzleChar Just a  = a
+renderPuzzleChar Nothing   = '_'
+renderPuzzleChar (Just a)  = a
 
 freshPuzzle :: String -> Puzzle
 freshPuzzle word = Puzzle word (take (length word) $ repeat Nothing) []
@@ -82,7 +78,7 @@ handleGuess puzzle guess = do
                     \ character, pick \
                     \ something else!"
             return puzzle
-        (True, _) ->
+        (True, _) -> do
             putStrLn "This character was in the\
                     \ word, filling the work\
                     \ accordingly"
@@ -101,3 +97,30 @@ gameOver (Puzzle wordToGuess _ guessed) =
                 "The word was: " ++ wordToGuess
             exitSuccess
     else return ()
+
+gameWin :: Puzzle -> IO ()
+gameWin (Puzzle _ filledInSoFar _) =
+    if all isJust filledInSoFar then
+        do
+            putStrLn "You win!"
+            exitSuccess
+    else return ()
+
+runGame :: Puzzle -> IO ()
+runGame puzzle = forever $ do
+    gameOver puzzle
+    gameWin puzzle
+    putStrLn $
+        "Current puzzle is: " ++ show puzzle
+    putStr "Guess a letter: "
+    guess <- getLine
+    case guess of
+        [c] -> handleGuess puzzle c >>= runGame
+        _   -> putStrLn "Your guess must\
+                        \ be a single character"
+
+main :: IO ()
+main = do
+    word <- randomWord'
+    let puzzle = freshPuzzle (fmap toLower word)
+    runGame puzzle
