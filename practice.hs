@@ -1,94 +1,136 @@
-import Control.Monad
-import Data.Semigroup
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
+
 import Test.QuickCheck
+import Test.QuickCheck.Function
 
-semigroupAssoc :: (Eq m, Semigroup m)
-            => m -> m -> m -> Bool
-semigroupAssoc a b c =
-  (a <> (b <> c)) == ((a <> b) <> c)
 
-newtype Identity a = Identity a deriving (Show, Eq)
+functorIdentity :: (Functor f, Eq (f a)) =>
+                     f a
+                  -> Bool
+functorIdentity f = fmap id f == f
 
-instance Semigroup a => Semigroup (Identity a) where
-  Identity a <> Identity b = Identity (a <> b)
+functorCompose :: (Functor f, Eq (f c)) =>
+                     f a
+                  -> Fun a b
+                  -> Fun b c
+                  -> Bool
+functorCompose x (Fun _ f) (Fun _ g) =
+  (fmap (g . f) x) == (fmap g . fmap f $ x)
 
-type IdAssoc a =
-  Identity a
-  -> Identity a
-  -> Identity a
-  -> Bool
+newtype Identity a = Identity a deriving (Eq, Show)
 
-instance Arbitrary a => Arbitrary (Identity a) where
+instance (Arbitrary a) => Arbitrary (Identity a) where
   arbitrary = Identity <$> arbitrary
 
-------------------------------------------------------------------
+instance Functor Identity where
+  fmap f (Identity a) = Identity $ f a
 
-data Two a b = Two a b deriving (Eq, Show)
+instance Applicative Identity where
+  pure = Identity
+  Identity f <*> Identity a = Identity $ f a
 
-instance (Semigroup a, Semigroup b) => Semigroup (Two a b) where
-  (Two a1 b1) <> (Two a2 b2) = Two (a1 <> a2) (b1 <> b2)
+-------------------------------------------------------
 
-type TwoAssoc a b =
-  Two a b
-  -> Two a b
-  -> Two a b
-  -> Bool
+newtype Constant a b =
+  Constant { getConstant :: a } deriving (Eq, Ord, Show)
+
+instance Functor (Constant a) where
+  fmap _ (Constant a) = Constant a
+
+instance Monoid a
+        => Applicative (Constant a) where
+  pure _ = Constant mempty
+  Constant a <*> Constant b = Constant $ a `mappend` b
+
+
+-------------------------------------------------------
+
+data Pair a = Pair a a deriving (Eq, Show)
+
+instance (Arbitrary a) => Arbitrary (Pair a) where
+  arbitrary = Pair <$> arbitrary <*> arbitrary
+
+instance Functor Pair where
+  fmap f (Pair a a') = Pair (f a) (f a')
+
+-------------------------------------------------------
+
+data Two a b  = Two a b deriving (Eq, Show)
 
 instance (Arbitrary a, Arbitrary b) => Arbitrary (Two a b) where
   arbitrary = Two <$> arbitrary <*> arbitrary
 
-
------------------------------------------------------------------
-
-newtype BoolConj = BoolConj Bool deriving (Eq, Show)
-
-instance Semigroup BoolConj where
-  BoolConj a <> BoolConj b = BoolConj $ a && b
-
-type BoolConjAssoc =
-  BoolConj -> BoolConj -> BoolConj -> Bool
-
-instance Arbitrary BoolConj where
-  arbitrary = BoolConj <$> arbitrary
+instance Functor (Two a) where
+  fmap f (Two a b) = Two a $ f b
 
 -------------------------------------------------------
 
-newtype BoolDisj = BoolDisj Bool deriving (Eq, Show)
+data Three a b c = Three a b c deriving (Eq, Show)
 
-instance Semigroup BoolDisj where
-  BoolDisj a <> BoolDisj b = BoolDisj $ a || b
+instance (Arbitrary a, Arbitrary b, Arbitrary c) =>
+    Arbitrary (Three a b c)
+  where
+    arbitrary = Three <$> arbitrary <*> arbitrary <*> arbitrary
 
-type BoolDisjAssoc =
-  BoolDisj -> BoolDisj -> BoolDisj -> Bool
-
-instance Arbitrary BoolDisj where
-  arbitrary = BoolDisj <$> arbitrary
+instance Functor (Three a b) where
+  fmap f (Three a b c) = Three a b $ f c
 
 -------------------------------------------------------
 
-data Or a b = Fst a | Snd b deriving (Eq, Show)
+data Three' a b = Three' a b b deriving (Eq, Show)
 
-instance Semigroup (Or a b) where
-  Fst _ <> Snd s = Snd s
-  Fst a <> _     = Fst a
-  Snd a <> _     = Snd a
+instance (Arbitrary a, Arbitrary b) => Arbitrary (Three' a b) where
+  arbitrary = Three' <$> arbitrary <*> arbitrary <*> arbitrary
 
-type OrAssoc a b = Or a b -> Or a b -> Or a b -> Bool
+instance Functor (Three' a) where
+  fmap f (Three' a b b') = Three' a (f b) (f b')
 
-instance (Arbitrary a, Arbitrary b) => Arbitrary (Or a b) where
-  arbitrary = oneof [Fst <$> arbitrary, Snd <$> arbitrary]
+-------------------------------------------------------
 
-----------------------------------------------------------------
+data Possibly a = LolNope | Yeppers a deriving (Eq, Show)
 
-newtype Combine a b = Combine { unCombine :: (a -> b) }
+instance Arbitrary a => Arbitrary (Possibly a) where
+  arbitrary = oneof [ return LolNope,
+                      Yeppers <$> arbitrary
+                    ]
 
+instance Functor Possibly where
+  fmap _ LolNope     = LolNope
+  fmap f (Yeppers a) = Yeppers $ f a
 
---instance Arbitrary a => Arbitrary (Optional (Foo a)) where
---  arbitrary =
---    frequency [ (1, return $ None)
---              , (8, (Some . Foo) <$> arbitrary)
---              ]
+-------------------------------------------------------
+
+data Quant a b =
+    Finance
+  | Desk a
+  | Bloor b
+  deriving (Eq, Show)
+
+instance (Arbitrary a, Arbitrary b) => Arbitrary (Quant a b) where
+  arbitrary = oneof [ return Finance,
+                      Desk <$> arbitrary,
+                      Bloor <$> arbitrary
+                    ]
+
+instance Functor (Quant a) where
+  fmap f (Bloor b)   = Bloor $ f b
+  fmap _ (Desk a)    = Desk a
+  fmap _ Finance     = Finance
+
+-------------------------------------------------------
+
+type Tested = Quant Int Int
+
+type IntToInt = Fun Int Int
+
+type TestedFC =
+     Tested
+  -> IntToInt
+  -> IntToInt
+  -> Bool
 
 main :: IO ()
 main = do
-  quickCheck (semigroupAssoc :: OrAssoc (Sum Int) String)
+    quickCheck (functorCompose :: TestedFC)
+    quickCheck (functorIdentity :: Tested -> Bool)
